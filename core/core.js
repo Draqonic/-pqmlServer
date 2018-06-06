@@ -1,36 +1,6 @@
-//WARNING: no log() function usage before init.js
-
-exports.core.device = 0
-exports.core.vendor = ""
-exports.core.__videoBackends = {}
-
 /* ${init.js} */
 
-if (!Function.prototype.bind) {
-	Function.prototype.bind = function(oThis) {
-		if (typeof this !== 'function') {
-			throw new TypeError('Function.prototype.bind - what is trying to be bound is not callable')
-		}
-
-		var aArgs = Array.prototype.slice.call(arguments, 1),
-			fToBind = this,
-			fNOP    = function() {},
-			fBound  = function() {
-				return fToBind.apply(this instanceof fNOP && oThis
-					? this
-					: oThis,
-					aArgs.concat(Array.prototype.slice.call(arguments)))
-			}
-
-			fNOP.prototype = this.prototype;
-			fBound.prototype = new fNOP();
-
-			return fBound;
-	}
-}
-
-if (log === null)
-	log = console.log.bind(console)
+log = console.log.bind(console)
 
 var safeCallImpl = function(callback, self, args, onError) {
 	try { return callback.apply(self, args) } catch(ex) { onError(ex) }
@@ -40,9 +10,6 @@ exports.core.safeCall = function(self, args, onError) {
 	return function(callback) { return safeCallImpl(callback, self, args, onError) }
 }
 
-/**
- * @constructor
- */
 var CoreObjectComponent = exports.core.CoreObject = function(parent) {
 	this._local = Object.create(parent? parent._local: null)
 }
@@ -51,13 +18,10 @@ var CoreObjectComponentPrototype = CoreObjectComponent.prototype
 CoreObjectComponentPrototype.componentName = 'core.CoreObject'
 CoreObjectComponentPrototype.constructor = CoreObjectComponent
 
-/** @private **/
 CoreObjectComponentPrototype.$c = function() { }
 
-/** @private **/
 CoreObjectComponentPrototype.$s = function() { }
 
-///@private gets object by id
 CoreObjectComponentPrototype._get = function(name, unsafe) {
 	if (name in this) //do not remove in here, properties may contain undefined!
 		return this[name]
@@ -243,15 +207,12 @@ PropertyStoragePrototype.removeOnChanged = function(callback) {
 
 exports.addProperty = function(proto, type, name, defaultValue) {
 	var convert
-	var animable = false
 	switch(type) {
 		case 'enum':
-		case 'int':		convert = function(value) { return ~~value }; animable = true; break
+		case 'int':		convert = function(value) { return ~~value }; break
 		case 'bool':	convert = function(value) { return value? true: false }; break
-		case 'real':	convert = function(value) { return +value }; animable = true; break
+		case 'real':	convert = function(value) { return +value }; break
 		case 'string':	convert = function(value) { return String(value) }; break
-
-		case 'Color':	animable = true; //fallthrough
 		default:		convert = function(value) { return value }; break
 	}
 
@@ -265,7 +226,6 @@ exports.addProperty = function(proto, type, name, defaultValue) {
 			case 'real':	defaultValue = 0.0; break
 			case 'string':	defaultValue = ""; break
 			case 'array':	defaultValue = []; break
-			case 'Color':	defaultValue = '#0000'; break
 			default:
 				defaultValue = (type[0].toUpperCase() == type[0])? null: undefined
 		}
@@ -294,7 +254,6 @@ exports.addProperty = function(proto, type, name, defaultValue) {
 
 		storage.set(this, name, newValue, defaultValue, true)
 	}
-
 
 	Object.defineProperty(proto, name, {
 		get: simpleGet,
@@ -329,37 +288,6 @@ exports.core.createSignalForwarder = function(object, name) {
 	})
 }
 
-/** @constructor */
-exports.core.EventBinder = function(target) {
-	this.target = target
-	this.callbacks = {}
-	this.enabled = false
-}
-
-exports.core.EventBinder.prototype.on = function(event, callback) {
-	if (event in this.callbacks)
-		throw new Error('double adding of event (' + event + ')')
-	this.callbacks[event] = callback
-	if (this.enabled)
-		this.target.on(event, callback)
-}
-
-exports.core.EventBinder.prototype.constructor = exports.core.EventBinder
-
-exports.core.EventBinder.prototype.enable = function(value) {
-	if (value != this.enabled) {
-		var target = this.target
-		this.enabled = value
-		if (value) {
-			for(var event in this.callbacks)
-				target.on(event, this.callbacks[event])
-		} else {
-			for(var event in this.callbacks)
-				target.removeListener(event, this.callbacks[event])
-		}
-	}
-}
-
 var protoEvent = function(prefix, proto, name, callback) {
 	var sname = prefix + '__' + name
 	//if property was in base prototype, create shallow copy and put our handler there or we would add to base prototype's array
@@ -383,43 +311,3 @@ exports.core._protoOn = function(proto, name, callback)
 exports.core._protoOnChanged = function(proto, name, callback)
 { protoEvent('__changed', proto, name, callback) }
 
-exports.core._protoOnKey = function(proto, name, callback)
-{ protoEvent('__key', proto, name, callback) }
-
-var ObjectEnumerator = function(callback) {
-	this._callback = callback
-	this._queue = []
-	this.history = []
-}
-
-var ObjectEnumeratorPrototype = ObjectEnumerator.prototype
-ObjectEnumeratorPrototype.constructor = ObjectEnumerator
-
-ObjectEnumeratorPrototype.unshift = function() {
-	var q = this._queue
-	q.unshift.apply(q, arguments)
-}
-
-ObjectEnumeratorPrototype.push = function() {
-	var q = this._queue
-	q.push.apply(q, arguments)
-}
-
-ObjectEnumeratorPrototype.enumerate = function(root, arg) {
-	var args = [this, arg]
-	var queue = this._queue
-	queue.unshift(root)
-	while(queue.length) {
-		var el = queue.shift()
-		this.history.push(el)
-		var r = this._callback.apply(el, args)
-		if (r)
-			break
-	}
-}
-
-exports.forEach = function(root, callback, arg) {
-	var oe = new ObjectEnumerator(callback)
-	oe.enumerate(root, arg)
-	return arg
-}
