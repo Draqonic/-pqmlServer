@@ -1,0 +1,6 @@
+{
+	"standalone": true,
+	"properties": {
+		"log": { "disable": false }
+	}
+}
