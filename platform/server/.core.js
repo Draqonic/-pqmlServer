@@ -1,8 +1,8 @@
 _globals.core.os = 'unknown'
-_globals.core.userAgent = 'pure-native'
+_globals.core.userAgent = 'unknown'
 _globals.core.language = 'en'
 
-if ((typeof process !== 'undefined') && (process.release.name === 'node')) {
+if (typeof process !== 'undefined') {
 	exports.core.os = process.platform
 	exports.core.userAgent = process.release.name
 }
