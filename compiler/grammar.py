@@ -1,5 +1,7 @@
 from pyparsing import *
 import lang
+import re
+import json
 
 ParserElement.setDefaultWhitespaceChars(" \t\r\f")
 ParserElement.enablePackrat()
@@ -114,6 +116,9 @@ def handle_documentation_string(s, l, t):
 		end = text.rfind('*/')
 		document(text[3:end], l, False)
 
+def handle_json_array(s, l, tokens):
+	return [list(tokens)]
+
 def handle_json_object(s, l, tokens):
 	obj = {}
 	for key, value in tokens:
@@ -158,6 +163,46 @@ def handle_string(s, l, t):
 	t[0] = value
 	return t
 
+#workaround #125
+#quoted/unquoted string has the same rules in grammar, but we unquote it manually later, see #125
+unquoted_string_value = \
+	QuotedString('"', escChar='\\', unquoteResults = False, multiline=True) | \
+	QuotedString("'", escChar='\\', unquoteResults = False, multiline=True) | \
+	QuotedString("`", escChar='\\', unquoteResults = False, multiline=True)
+
+re_x = re.compile(r'\\x([0-9a-f]{2})', re.I)
+re_u = re.compile(r'\\u([0-9a-f]{4})', re.I)
+re_o = re.compile(r'\\([0-7]{3})')
+re_u2 = re.compile(r'\\([0-9][0-9a-f]{0,3})', re.I) #old js unicode stuff, try \07f
+re_esc = re.compile(r'\\(.)')
+
+def unquote(value):
+	value = re_x.sub(lambda m: chr(int(m.group(1), 16)), value)
+	value = re_u.sub(lambda m: unichr(int(m.group(1), 16)), value)
+	value = re_o.sub(lambda m: chr(int(m.group(1), 8)), value)
+	value = re_u2.sub(lambda m: unichr(int(m.group(1), 16)), value)
+
+	def unescape(m):
+		c = m.group(1)
+		return {
+			'0': '\0',
+			'n': '\n',
+			'r': '\r',
+			'v': '\v',
+			't': '\t',
+			'b': '\b',
+			'f': '\f',
+		}.get(c, c)
+
+	value = re_esc.sub(unescape, value)
+	return value
+
+def handle_string_unquote(s, l, t):
+	t = handle_string(s, l, t)
+	return unquote(str(t[0])[1:-1])
+
+unquoted_string_value.setParseAction(handle_string_unquote)
+
 quoted_string_value = \
 	QuotedString('"', escChar='\\', unquoteResults = False, multiline=True) | \
 	QuotedString("'", escChar='\\', unquoteResults = False, multiline=True) | \
@@ -165,12 +210,6 @@ quoted_string_value = \
 quoted_string_value.setParseAction(handle_string)
 
 code = originalTextFor(nestedExpr("{", "}", ignoreExpr=(quoted_string_value | cStyleComment | cppStyleComment)))
-
-unquoted_string_value = \
-	QuotedString('"', escChar='\\', unquoteResults = True, multiline=True) | \
-	QuotedString("'", escChar='\\', unquoteResults = True, multiline=True) | \
-	QuotedString("`", escChar='\\', unquoteResults = True, multiline=True)
-unquoted_string_value.setParseAction(handle_string)
 
 enum_element = Word(srange("[A-Z_]"), alphanums)
 enum_value = Word(srange("[A-Z_]"), alphanums) + Literal(".") + enum_element
@@ -236,6 +275,7 @@ json_value = Forward()
 json_object = Suppress("{") + delimitedList(Group((unquoted_string_value | identifier) + Suppress(":") + json_value) | empty, Suppress(";") | Suppress(",")) + Suppress('}')
 json_object.setParseAction(handle_json_object)
 json_array = Suppress("[") + delimitedList(json_value) + Suppress("]")
+json_array.setParseAction(handle_json_array)
 json_value << (null_value | bool_value | number | unquoted_string_value | json_array | json_object)
 
 list_element_declaration = Keyword("ListElement").suppress() - json_object
@@ -267,9 +307,9 @@ def handle_percent_number(s, l, t):
 percent_number = number + '%'
 percent_number.setParseAction(handle_percent_number)
 
-expression_array = Literal("[") + Optional(delimitedList(expression, ",")) + Literal("]")
+expression_array = Suppress("[") + Optional(delimitedList(json_value, ",")) + Suppress("]")
 def handle_expression_array(s, l, t):
-	return "".join(t)
+	return json.dumps(list(t))
 
 expression_array.setParseAction(handle_expression_array)
 
